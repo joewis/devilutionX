@@ -1161,7 +1161,7 @@ void S_SellEnter()
 	} else {
 		stextlhold = stextsel;
 		idx = stextsval + ((stextsel - stextup) >> 2);
-		stextshold = STORE_SSELL;
+		stextshold = sellStore;
 		stextvhold = stextsval;
 		plr[myplr].HoldItem = storehold[idx];
 

@@ -322,7 +322,7 @@ void BuyItem()
         SpawnPremium(myplr);
 	}else{
         if (idx == storeItemCount - 1) {
-            smithitem[storeItemCount - 1]._itype = ITYPE_NONE;
+            storeItem[storeItemCount - 1]._itype = ITYPE_NONE;
         } else {
             for (; !storeItem[idx + 1].isEmpty(); idx++) {
                 storeItem[idx] = storeItem[idx + 1];

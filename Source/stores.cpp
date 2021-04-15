@@ -63,7 +63,7 @@ const char *const talkname[] = {
 };
 
 /** pointer to switch lists depending on visite=d shop */
-ItemStruct* storeItem;
+ItemStruct *storeItem;
 int storeItemCount;
 talk_id activeStore, buyStore, sellStore;
 
@@ -308,27 +308,27 @@ void BuyItem()
 
 	idx = stextvhold + ((stextlhold - stextup) >> 2);
 
-	if (buyStore == STORE_SPBUY){
-        int xx = 0;
-        for (int i = 0; idx >= 0; i++) {
-            if (!premiumitem[i].isEmpty()) {
-                idx--;
-                xx = i;
-            }
-        }
+	if (buyStore == STORE_SPBUY) {
+		int xx = 0;
+		for (int i = 0; idx >= 0; i++) {
+			if (!premiumitem[i].isEmpty()) {
+				idx--;
+				xx = i;
+			}
+		}
 
-        premiumitem[xx]._itype = ITYPE_NONE;
-        numpremium--;
-        SpawnPremium(myplr);
-	}else{
-        if (idx == storeItemCount - 1) {
-            storeItem[storeItemCount - 1]._itype = ITYPE_NONE;
-        } else {
-            for (; !storeItem[idx + 1].isEmpty(); idx++) {
-                storeItem[idx] = storeItem[idx + 1];
-            }
-            storeItem[idx]._itype = ITYPE_NONE;
-        }
+		premiumitem[xx]._itype = ITYPE_NONE;
+		numpremium--;
+		SpawnPremium(myplr);
+	} else {
+		if (idx == storeItemCount - 1) {
+			storeItem[storeItemCount - 1]._itype = ITYPE_NONE;
+		} else {
+			for (; !storeItem[idx + 1].isEmpty(); idx++) {
+				storeItem[idx] = storeItem[idx + 1];
+			}
+			storeItem[idx]._itype = ITYPE_NONE;
+		}
 	}
 
 	CalcPlrInv(myplr, true);
@@ -362,38 +362,38 @@ bool SellOk(int i)
 		pI = &plr[myplr].SpdList[-(i + 1)];
 	}
 
-    if (pI->isEmpty())
-        return false;
-    if (pI->_itype == ITYPE_GOLD)
-        return false;
-    if (pI->_iClass == ICLASS_QUEST)
-        return false;
-    if (pI->IDidx == IDI_LAZSTAFF)
-        return false;
+	if (pI->isEmpty())
+		return false;
+	if (pI->_itype == ITYPE_GOLD)
+		return false;
+	if (pI->_iClass == ICLASS_QUEST)
+		return false;
+	if (pI->IDidx == IDI_LAZSTAFF)
+		return false;
 
-	if (activeStore == STORE_SMITH){
-        if (pI->_iMiscId > IMISC_OILFIRST && pI->_iMiscId < IMISC_OILLAST)
-            return true;
-        if (pI->_itype == ITYPE_MISC)
-            return false;
-        if (pI->_itype == ITYPE_STAFF && (!gbIsHellfire || pI->_iSpell != SPL_NULL))
-            return false;
-    }
-
-	if (activeStore == STORE_WITCH){
-        bool rv = false;
-        if (pI->_itype == ITYPE_MISC)
-            rv = true;
-        if (pI->_iMiscId > 29 && pI->_iMiscId < 41)
-            rv = false;
-        if (pI->_itype == ITYPE_STAFF && (!gbIsHellfire || pI->_iSpell != SPL_NULL))
-            rv = true;
-        if (pI->IDidx >= IDI_FIRSTQUEST && pI->IDidx <= IDI_LASTQUEST)
-            rv = false;
-        return rv;
+	if (activeStore == STORE_SMITH) {
+		if (pI->_iMiscId > IMISC_OILFIRST && pI->_iMiscId < IMISC_OILLAST)
+			return true;
+		if (pI->_itype == ITYPE_MISC)
+			return false;
+		if (pI->_itype == ITYPE_STAFF && (!gbIsHellfire || pI->_iSpell != SPL_NULL))
+			return false;
 	}
 
-    return true;
+	if (activeStore == STORE_WITCH) {
+		bool rv = false;
+		if (pI->_itype == ITYPE_MISC)
+			rv = true;
+		if (pI->_iMiscId > 29 && pI->_iMiscId < 41)
+			rv = false;
+		if (pI->_itype == ITYPE_STAFF && (!gbIsHellfire || pI->_iSpell != SPL_NULL))
+			rv = true;
+		if (pI->IDidx >= IDI_FIRSTQUEST && pI->IDidx <= IDI_LASTQUEST)
+			rv = false;
+		return rv;
+	}
+
+	return true;
 }
 
 void S_StartSell()
@@ -1015,29 +1015,29 @@ void S_SmithEnter()
 		StartStore(STORE_GOSSIP);
 		break;
 	case 12:
-        buyStore = STORE_SBUY;
-        storeItem = smithitem;
-        storeItemCount = SMITH_ITEMS;
-        sprintf(tempstr, "I have these items for sale:             Your gold: %i", plr[myplr]._pGold);
+		buyStore = STORE_SBUY;
+		storeItem = smithitem;
+		storeItemCount = SMITH_ITEMS;
+		sprintf(tempstr, "I have these items for sale:             Your gold: %i", plr[myplr]._pGold);
 		StartStore(STORE_SBUY);
 		break;
 	case 14:
-        buyStore = STORE_SPBUY;
-        storeItem = premiumitem;
-        storeItemCount = numpremium;
+		buyStore = STORE_SPBUY;
+		storeItem = premiumitem;
+		storeItemCount = numpremium;
 		sprintf(tempstr, "I have these premium items for sale:             Your gold: %i", plr[myplr]._pGold);
 		StartStore(STORE_SPBUY);
 		break;
 	case 16:
-        sellStore = STORE_SSELL;
-        storeItem = storehold;
-        storeItemCount = sizeof(storehold)/sizeof(storehold[48]); //48 but better not to hard code in two places.
-        StartStore(STORE_SSELL);
+		sellStore = STORE_SSELL;
+		storeItem = storehold;
+		storeItemCount = sizeof(storehold) / sizeof(storehold[48]); //48 but better not to hard code in two places.
+		StartStore(STORE_SSELL);
 		break;
 	case 18:
-        storeItem = storehold;
-        storeItemCount = sizeof(storehold)/sizeof(storehold[48]); //48 but better not to hard code in two places.
-        StartStore(STORE_SREPAIR);
+		storeItem = storehold;
+		storeItemCount = sizeof(storehold) / sizeof(storehold[48]); //48 but better not to hard code in two places.
+		StartStore(STORE_SREPAIR);
 		break;
 	case 20:
 		stextflag = STORE_NONE;
@@ -1233,21 +1233,21 @@ void S_WitchEnter()
 		StartStore(STORE_GOSSIP);
 		return;
 	case 14:
-        buyStore = STORE_WBUY;
-        storeItem = witchitem;
-        storeItemCount = WITCH_ITEMS;
-        sprintf(tempstr, "I have these items for sale:             Your gold: %i", plr[myplr]._pGold);
+		buyStore = STORE_WBUY;
+		storeItem = witchitem;
+		storeItemCount = WITCH_ITEMS;
+		sprintf(tempstr, "I have these items for sale:             Your gold: %i", plr[myplr]._pGold);
 		StartStore(STORE_WBUY);
 		return;
 	case 16:
 		sellStore = STORE_WSELL;
 		storeItem = storehold;
-        storeItemCount = sizeof(storehold)/sizeof(storehold[48]); //48 but better not to hard code in two places.
+		storeItemCount = sizeof(storehold) / sizeof(storehold[48]); //48 but better not to hard code in two places.
 		StartStore(STORE_WSELL);
 		return;
 	case 18:
-        storeItem = storehold;
-        storeItemCount = sizeof(storehold)/sizeof(storehold[48]); //48 but better not to hard code in two places.
+		storeItem = storehold;
+		storeItemCount = sizeof(storehold) / sizeof(storehold[48]); //48 but better not to hard code in two places.
 		StartStore(STORE_WRECHARGE);
 		return;
 	case 20:
@@ -1455,9 +1455,9 @@ void S_HealerEnter()
 		StartStore(STORE_GOSSIP);
 		break;
 	case 14:
-        buyStore = STORE_HBUY;
-        storeItem = healitem;
-        storeItemCount = sizeof(healitem)/sizeof(healitem[0]); //it's 20 but better not hard code it in 2 places
+		buyStore = STORE_HBUY;
+		storeItem = healitem;
+		storeItemCount = sizeof(healitem) / sizeof(healitem[0]); //it's 20 but better not hard code it in 2 places
 		sprintf(tempstr, "I have these items for sale:             Your gold: %i", plr[myplr]._pGold);
 		StartStore(STORE_HBUY);
 		break;
@@ -1479,8 +1479,8 @@ void S_StoryEnter()
 		StartStore(STORE_GOSSIP);
 		break;
 	case 14:
-        storeItem = storehold;
-        storeItemCount = sizeof(storehold)/sizeof(storehold[48]); //48 but better not to hard code in two places.
+		storeItem = storehold;
+		storeItemCount = sizeof(storehold) / sizeof(storehold[48]); //48 but better not to hard code in two places.
 		StartStore(STORE_SIDENTIFY);
 		break;
 	case 18:

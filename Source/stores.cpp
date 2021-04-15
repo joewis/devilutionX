@@ -1400,6 +1400,9 @@ void S_ConfirmEnter()
 	if (stextsel == 18) {
 		switch (stextshold) {
 		case STORE_SBUY:
+		case STORE_WBUY:
+		case STORE_HBUY:
+		case STORE_SPBUY:
 			BuyItem();
 			break;
 		case STORE_SSELL:
@@ -1409,25 +1412,16 @@ void S_ConfirmEnter()
 		case STORE_SREPAIR:
 			SmithRepairItem();
 			break;
-		case STORE_WBUY:
-			BuyItem();
-			break;
 		case STORE_WRECHARGE:
 			WitchRechargeItem();
 			break;
 		case STORE_BBOY:
 			BoyBuyItem();
 			break;
-		case STORE_HBUY:
-			BuyItem();
-			break;
 		case STORE_SIDENTIFY:
 			StoryIdItem();
 			StartStore(STORE_IDSHOW);
 			return;
-		case STORE_SPBUY:
-			BuyItem();
-			break;
 		default:
 			break;
 		}
@@ -1918,21 +1912,13 @@ void DrawSText(CelOutputBuffer out)
 	if (stextscrl) {
 		switch (stextflag) {
 		case STORE_SBUY:
-			S_Scroll(stextsval);
-			break;
 		case STORE_SSELL:
 		case STORE_SREPAIR:
 		case STORE_WSELL:
 		case STORE_WRECHARGE:
 		case STORE_SIDENTIFY:
-			S_Scroll(stextsval);
-			break;
 		case STORE_WBUY:
-			S_Scroll(stextsval);
-			break;
 		case STORE_HBUY:
-			S_Scroll(stextsval);
-			break;
 		case STORE_SPBUY:
 			S_Scroll(stextsval);
 			break;
@@ -2224,12 +2210,13 @@ void STextEnter()
 		S_SmithEnter();
 		break;
 	case STORE_SPBUY:
-		S_BuyEnter();
-		break;
 	case STORE_SBUY:
+	case STORE_WBUY:
+	case STORE_HBUY:
 		S_BuyEnter();
 		break;
 	case STORE_SSELL:
+	case STORE_WSELL:
 		S_SellEnter();
 		break;
 	case STORE_SREPAIR:
@@ -2237,12 +2224,6 @@ void STextEnter()
 		break;
 	case STORE_WITCH:
 		S_WitchEnter();
-		break;
-	case STORE_WBUY:
-		S_BuyEnter();
-		break;
-	case STORE_WSELL:
-		S_SellEnter();
 		break;
 	case STORE_WRECHARGE:
 		S_WRechargeEnter();
@@ -2267,9 +2248,6 @@ void STextEnter()
 		break;
 	case STORE_STORY:
 		S_StoryEnter();
-		break;
-	case STORE_HBUY:
-		S_BuyEnter();
 		break;
 	case STORE_SIDENTIFY:
 		S_SIDEnter();

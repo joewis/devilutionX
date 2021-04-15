@@ -256,7 +256,7 @@ void S_StartBuy()
 	stextsize = true;
 	stextscrl = true;
 	stextsval = 0;
-	sprintf(tempstr, "I have these items for sale:             Your gold: %i", plr[myplr]._pGold);
+	//sprintf(tempstr, "I have these items for sale:             Your gold: %i", plr[myplr]._pGold);
 	AddSText(0, 1, true, tempstr, COL_GOLD, false);
 	AddSLine(3);
 	AddSLine(21);
@@ -1018,12 +1018,14 @@ void S_SmithEnter()
         buyStore = STORE_SBUY;
         storeItem = smithitem;
         storeItemCount = SMITH_ITEMS;
+        sprintf(tempstr, "I have these items for sale:             Your gold: %i", plr[myplr]._pGold);
 		StartStore(STORE_SBUY);
 		break;
 	case 14:
         buyStore = STORE_SPBUY;
         storeItem = premiumitem;
         storeItemCount = numpremium;
+		sprintf(tempstr, "I have these premium items for sale:             Your gold: %i", plr[myplr]._pGold);
 		StartStore(STORE_SPBUY);
 		break;
 	case 16:
@@ -1234,6 +1236,7 @@ void S_WitchEnter()
         buyStore = STORE_WBUY;
         storeItem = witchitem;
         storeItemCount = WITCH_ITEMS;
+        sprintf(tempstr, "I have these items for sale:             Your gold: %i", plr[myplr]._pGold);
 		StartStore(STORE_WBUY);
 		return;
 	case 16:
@@ -1455,6 +1458,7 @@ void S_HealerEnter()
         buyStore = STORE_HBUY;
         storeItem = healitem;
         storeItemCount = sizeof(healitem)/sizeof(healitem[0]); //it's 20 but better not hard code it in 2 places
+		sprintf(tempstr, "I have these items for sale:             Your gold: %i", plr[myplr]._pGold);
 		StartStore(STORE_HBUY);
 		break;
 	case 16:

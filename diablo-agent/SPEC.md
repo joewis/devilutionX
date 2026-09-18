@@ -365,13 +365,25 @@ heartbeat gives oversight without spending calls on routine play.
 
 1. Portal semantics — duration, re-entry for the return trip.
 2. Exact death-drop behaviour (items + half gold) observed live.
-3. Whether monsters in LOS but unlit are perceived as silhouettes (the render path
-   suggests a TRN silhouette) — affects the sight channel's definition.
-4. Whether `Lit` already folds in gear/spell light radius.
+3. ~~Whether monsters in LOS but unlit are perceived as silhouettes~~ — settled in
+   favour of *not* exporting them: the snapshot exposes an entity only when its tile
+   carries `DungeonFlag::Visible`, which is the same predicate the renderer uses to draw
+   it lit. If a silhouette proves to be genuinely player-visible, the channel can be
+   widened deliberately; until then the narrower rule stands.
+4. ~~Whether `Lit` already folds in gear/spell light radius~~ — the exposed
+   `light_radius_tiles` matched the observed sight range exactly (radius 10 → a monster
+   first appeared at 10 tiles and remained visible while it closed).
 5. Multiplayer: monster HP scaling; party-member visibility on the automap.
 6. Does the engine expose a path-length query over explored tiles (for frontier
-   ranking), or do we compute the local graph ourselves?
+   ranking), or do we compute the local graph ourselves? — currently computed
+   agent-side with a BFS over the snapshot's seen-tile grid.
 7. Escalation transport: spool file vs socket; brief size and cadence.
+8. **Path routing vs knowledge.** A walk order is handed to the engine's own pathfinder,
+   which knows the whole level, so the route may cross tiles the agent has not seen. This
+   matches what a human gets when clicking a distant tile, but the *destination* is always
+   a tile the agent has seen. Decide whether routing must also be restricted to known
+   tiles (it would need a single-step command cadence).
+9. Ground items are not yet in the snapshot (loot decisions need them).
 
 ---
 
@@ -382,3 +394,22 @@ heartbeat gives oversight without spending calls on routine play.
   instrumental — necessary to survive levels 2 and 3.
 - Death → restart in town → recover the cadaver → continue. Not a failure.
 - Review checkpoints: after the first full session or 3 deaths, whichever is first.
+
+---
+
+## 11. Verification log
+
+Everything below was observed live against the built fork (branch `agent`), not reasoned
+about from the source.
+
+| Channel | Observation |
+| --- | --- |
+| Town memory | 6400 cells explored, 0 in sight. The lighting pass does not run in town, so memory there comes from the automap grid; `DungeonFlag::Explored` is 0 everywhere in town. |
+| Dungeon memory | On cathedral level 1, 184 of 12544 world tiles explored (1.5%) on arrival at the stairs, rising to 302 after ~5 s of exploration. The level layout, its monsters and its other staircases were absent from the snapshot. |
+| Sight | 135–149 tiles in sight at radius 10, matching the rendered lit area. |
+| Monsters | None exported while at the entrance; a Skeleton Captain and a Fallen One appeared at exactly 10 tiles (the light radius) once the character advanced, with correct bearing, distance and coarse health. Walking away, they stayed in the list as they chased, and hit for 3 damage. |
+| Landmarks | The cathedral entrance was known in town as `descend` at [25,29]; the level-1 stairs up were known as `ascend` at [56,66]. Both were filtered by "tile has been seen". |
+| Objects | 8 inside the cathedral entrance, later 10: doors, one chest, solid scenery, each flagged in sight or merely remembered. |
+| Actions | `walk` orders executed through the engine's own pathing: 50 tiles across town, down to level 1, then to a frontier, then back to the stairs and up to town. Command sequence numbers acknowledged in the next snapshot. |
+| Deliberate non-action | With combat unimplemented the character took 39 damage while merely retreating, which is the expected cost of not fighting back — the reason Tier 0 reflexes come next. |
+

@@ -34,6 +34,25 @@ def parse_grid(snapshot):
     return [row for row in grid if row]
 
 
+def passable_grid(snapshot):
+    """The map grid with known doors marked passable.
+
+    IsTileWalkable reports a closed door as solid. That is correct for standing on a tile
+    and wrong for travelling through one: the engine walks the character into a closed door
+    and opens it on the way, and so does a player. Without this correction the frontier
+    search treats every doorway as a wall, declares a level finished, and leaves the rooms
+    behind those doors unexplored - which is exactly what happened on the first run.
+    """
+    grid = [list(row) for row in parse_grid(snapshot)]
+    for obj in snapshot["objects"]:
+        if obj["kind"] != "door":
+            continue
+        x, y = obj["tile"]
+        if 0 <= y < len(grid) and 0 <= x < len(grid[y]) and grid[y][x] in "x#":
+            grid[y][x] = "."
+    return ["".join(row) for row in grid]
+
+
 def bfs(grid, start, is_goal):
     """Breadth-first search over seen floor tiles; returns (goal, path) or (None, [])."""
     width = len(grid[0])
@@ -67,9 +86,28 @@ def is_frontier(grid, tile):
     return False
 
 
-def nearest_frontier(grid, start):
+def nearest_frontier(grid, start, avoid=()):
     """Nearest frontier by actual walking distance, not straight-line."""
-    return bfs(grid, start, lambda tile: is_frontier(grid, tile))
+    avoid = set(avoid)
+    return bfs(grid, start, lambda tile: tile not in avoid and is_frontier(grid, tile))
+
+
+def first_closed_door_on_path(snapshot, path):
+    """The first still-shut door tile on a route, or None.
+
+    The frontier search treats doors as passable because the engine opens a door the
+    character walks into - but only when that door is the *destination*, never as a
+    waypoint on the way somewhere else. A route crossing a shut door therefore has to be
+    interrupted: walk to the door, open it, then replan. Skipping this step does not fail
+    loudly; the character simply stands still forever while the agent keeps re-issuing an
+    order the engine cannot satisfy.
+    """
+    doors = {(o["tile"][0], o["tile"][1]) for o in snapshot["objects"] if o["kind"] == "door"}
+    raw = parse_grid(snapshot)
+    for x, y in path:
+        if (x, y) in doors and raw[y][x] in "x#":
+            return (x, y)
+    return None
 
 
 def explore(seconds, hp_floor, stop_on_monster, quiet=False):
@@ -101,7 +139,7 @@ def explore(seconds, hp_floor, stop_on_monster, quiet=False):
             reason = "health at %d%% (floor %d%%)" % (hp_ratio * 100, hp_floor * 100)
             break
 
-        grid = parse_grid(snapshot)
+        grid = passable_grid(snapshot)
         goal, path = nearest_frontier(grid, player)
 
         if goal is None:

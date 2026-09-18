@@ -55,8 +55,74 @@ def landmark(snapshot, kind):
     return found[0] if found else None
 
 
+def reachable_from(snapshot, start):
+    """Seen floor tiles the character can actually walk to without crossing a blocked tile."""
+    from collections import deque
+    grid = explore.passable_grid(snapshot)
+    seen_floor = {(x, y) for y, row in enumerate(grid) for x, c in enumerate(row) if c in explore.SEEN_FLOOR}
+    queue, visited = deque([start]), {start}
+    while queue:
+        x, y = queue.popleft()
+        for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+            n = (x + dx, y + dy)
+            if n in seen_floor and n not in visited:
+                visited.add(n)
+                queue.append(n)
+    return visited
+
+
+def open_door(snapshot, tile, tried):
+    """Walk to a door and open it.
+
+    Tier 0's half of the door problem: a door is a door. Tier 1's question - whether opening
+    *this* one is wise, e.g. when it would shut off an escape route - is deliberately not
+    answered here.
+
+    `tried` records doors already attempted so one that refuses to open cannot trap the loop.
+    """
+    if tile in tried:
+        return False
+    tried.add(tile)
+    x, y = tile
+    log("opening door at %s" % (tile,))
+    ac.walk_to(x, y)  # the engine paths to a tile adjacent to an object, not onto it
+
+    # Wait until the character is actually there: a walk order can be tens of tiles, and
+    # operating from across the level does nothing at all.
+    deadline = time.time() + 45
+    while time.time() < deadline:
+        time.sleep(0.5)
+        try:
+            now = ac.read_snapshot()
+        except ac.GameNotRunning:
+            break
+        player_tile = tuple(now["player"]["tile"])
+        if max(abs(player_tile[0] - x), abs(player_tile[1] - y)) <= 1:
+            break
+
+    ac.send("operate", x=x, y=y)
+    time.sleep(1.5)
+    return True
+
+
+def try_open_any_known_door(snapshot, reachable, tried):
+    """Fallback: open any seen door that is on our side of something."""
+    for obj in snapshot["objects"]:
+        if obj["kind"] != "door":
+            continue
+        tile = (obj["tile"][0], obj["tile"][1])
+        if tile in tried:
+            continue
+        neighbours = [(tile[0] + dx, tile[1] + dy) for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1))]
+        if any(n in reachable for n in neighbours):
+            return open_door(snapshot, tile, tried)
+    return False
+
+
 def play(seconds, hp_floor=0.4, descend_hp_floor=0.6, engagement_seconds=25):
     deadline = time.time() + seconds
+    tried_doors = set()
+    blocked_goals = set()
     snapshot = ac.read_snapshot()
     start = (snapshot["level"]["kind"], snapshot["level"]["dungeon_level"])
     log("start: %s level %d | hp %d/%d | exp %d" % (
@@ -124,12 +190,24 @@ def play(seconds, hp_floor=0.4, descend_hp_floor=0.6, engagement_seconds=25):
             continue
 
         # --- nothing to fight, way down unknown or unwise: explore ----------------------
-        grid = explore.parse_grid(snapshot)
+        grid = explore.passable_grid(snapshot)
         player_tile = tuple(player["tile"])
-        goal, path = explore.nearest_frontier(grid, player_tile)
+        goal, path = explore.nearest_frontier(grid, player_tile, avoid=blocked_goals)
         if goal is None:
-            log("no frontier left on level %d and no usable way down" % dungeon_level)
+            # Nothing to aim at. Before declaring the level finished, clear a door: the
+            # unseen space behind it is invisible, not absent.
+            if try_open_any_known_door(snapshot, reachable_from(snapshot, player_tile), tried_doors):
+                continue
+            log("level %d exhausted: no frontier and no door left to open" % dungeon_level)
             return False
+
+        # A shut door on the route cannot be walked through: the engine only opens a door
+        # that is the destination itself. Interrupt, open it, replan.
+        shut_door = explore.first_closed_door_on_path(snapshot, path)
+        if shut_door is not None:
+            open_door(snapshot, shut_door, tried_doors)
+            continue
+
         log("exploring toward %s (%d tiles of path, hp %d%%, seen %d)" % (
             goal, len(path), hp_ratio * 100, snapshot["map"]["explored_tiles"]))
         ac.walk_to(*goal)
@@ -137,6 +215,7 @@ def play(seconds, hp_floor=0.4, descend_hp_floor=0.6, engagement_seconds=25):
         # Give the order time to play out; abandon it early if a monster shows up so the
         # reflex tier can deal with the threat instead of the character walking past it.
         order_deadline = time.time() + 8
+        stuck_since = None
         while time.time() < order_deadline and time.time() < deadline:
             time.sleep(0.4)
             try:
@@ -148,6 +227,17 @@ def play(seconds, hp_floor=0.4, descend_hp_floor=0.6, engagement_seconds=25):
             tile = tuple(now["player"]["tile"])
             if max(abs(tile[0] - goal[0]), abs(tile[1] - goal[1])) <= 1:
                 break
+            # Standing still under a live order means the engine cannot satisfy it, so stop
+            # asking for this goal and try the next frontier instead of livelocking on it.
+            if tile == player_tile:
+                if stuck_since is None:
+                    stuck_since = time.time()
+                elif time.time() - stuck_since > 4:
+                    log("goal %s unreachable (stood still 4s) - trying another frontier" % (goal,))
+                    blocked_goals.add(goal)
+                    break
+            else:
+                stuck_since = None
 
     log("time budget exhausted")
     return False

@@ -412,4 +412,20 @@ about from the source.
 | Objects | 8 inside the cathedral entrance, later 10: doors, one chest, solid scenery, each flagged in sight or merely remembered. |
 | Actions | `walk` orders executed through the engine's own pathing: 50 tiles across town, down to level 1, then to a frontier, then back to the stairs and up to town. Command sequence numbers acknowledged in the next snapshot. |
 | Deliberate non-action | With combat unimplemented the character took 39 damage while merely retreating, which is the expected cost of not fighting back — the reason Tier 0 reflexes come next. |
+| Combat | A Fallen One and a Skeleton Captain were killed in melee (+46, +99, +52 experience), confirming kills independently of the agent's own reporting. |
+| **Descent to level 2** | **Reached cathedral level 2 alive** at 62/70 hp with 1665 experience: level 1 explored through its doors, monsters cleared on the way, then the way down taken once the level was quiet and health was 88%. |
+
+### Two navigation traps found the hard way
+
+1. **Doors are not walls, but pathing treats them as destination-only.** `IsTileWalkable`
+   reports a shut door as solid, which is right for standing and wrong for travelling — the
+   engine opens a door the character walks *into*, never one used as a waypoint. A frontier
+   search that honours the raw grid therefore declares a level finished while half of it sits
+   behind doors (observed: 996 tiles "explored", 586 seen floor, 24 seen-but-walled-off).
+   Fix: treat known doors as passable when *planning*, but interrupt the route at the first
+   shut door on it, open it, and replan.
+2. **An unsatisfiable order fails silently, not loudly.** The engine simply stands still
+   while the agent re-issues the same order forever (observed: 90 s livelocked on one goal).
+   A stuck detector — no movement for 4 s under a live order — marks that goal unreachable
+   and picks another frontier.
 

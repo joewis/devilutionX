@@ -40,9 +40,11 @@ def fight(seconds=120.0, hp_floor=0.35, verbose=True):
     gold_start = snapshot["player"]["gold"]
 
     kills = 0
-    adjacent_last = set()  # monster slots that were within two tiles last look
+    adjacent_last = set()   # monster slots that were within two tiles last look
     idle_rounds = 0
     reason = "time budget"
+    unreachable = set()     # slots the engine will not let us walk to
+    stalled = {}            # slot -> ((player tile, distance), consecutive orders)
 
     print("engaging: level %d, exp %d, hp %d/%d, floor %d%%" % (
         level_start, experience_start, snapshot["player"]["hp"],
@@ -55,8 +57,12 @@ def fight(seconds=120.0, hp_floor=0.35, verbose=True):
         hp_ratio = player["hp"] / max(1, player["max_hp"])
         monsters = snapshot["visible_monsters"]
 
+        visible_now = {m["slot"] for m in monsters}
         adjacent_now = {m["slot"] for m in monsters if m["dist_tiles"] <= 2}
-        for slot in adjacent_last - adjacent_now:
+        # A kill is a monster that was in melee range and has now left the view entirely.
+        # Counting every departure from the two-tile ring over-counts: a monster that steps
+        # out and back is not a corpse, and experience is the honest cross-check.
+        for slot in adjacent_last - visible_now:
             kills += 1
             print("  KILL: slot %d gone from melee range (kills=%d, exp=%d, hp=%d)" % (
                 slot, kills, player["experience"], player["hp"]), flush=True)
@@ -79,8 +85,31 @@ def fight(seconds=120.0, hp_floor=0.35, verbose=True):
             continue
         idle_rounds = 0
 
-        target = nearest(monsters)
+        candidates = [m for m in monsters if m["slot"] not in unreachable]
+        if not candidates:
+            reason = "no reachable target"
+            break
+
+        target = nearest(candidates)
         if player["dest_action"] != ATTACK_MON:
+            # A monster can be perfectly visible and still unreachable - across a pit, or
+            # through a gap the pathfinder will not take. The engine accepts the attack
+            # order and then does nothing at all, so waiting never fixes it: after five
+            # orders with no movement and no closing distance, give up on it and try the
+            # next one instead of burning the whole engagement on it.
+            key = (tuple(player["tile"]), target["dist_tiles"])
+            if stalled.get(target["slot"], (None, 0))[0] == key:
+                count = stalled[target["slot"]][1] + 1
+            else:
+                count = 1
+            stalled[target["slot"]] = (key, count)
+
+            if count > 5:
+                print("  %s (slot %d) unreachable: no movement after %d orders, leaving it" % (
+                    target["type"], target["slot"], count - 1), flush=True)
+                unreachable.add(target["slot"])
+                continue
+
             ac.send("attack", slot=target["slot"])
             print("  attacking %s (slot %d, %d tiles, %s) hp=%d%% exp=%d" % (
                 target["type"], target["slot"], target["dist_tiles"], target["health"],

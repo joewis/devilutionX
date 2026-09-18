@@ -33,7 +33,7 @@ def nearest(monsters):
     return min(monsters, key=lambda monster: monster["dist_tiles"])
 
 
-def fight(seconds=120.0, hp_floor=0.35, verbose=True):
+def fight(seconds=120.0, hp_floor=0.35, ignore_slots=()):
     snapshot = ac.read_snapshot()
     experience_start = snapshot["player"]["experience"]
     level_start = snapshot["player"]["character_level"]
@@ -43,6 +43,7 @@ def fight(seconds=120.0, hp_floor=0.35, verbose=True):
     adjacent_last = set()   # monster slots that were within two tiles last look
     idle_rounds = 0
     reason = "time budget"
+    ignored = set(ignore_slots)  # targets the caller already knows it cannot reach
     unreachable = set()     # slots the engine will not let us walk to
     stalled = {}            # slot -> ((player tile, distance), consecutive orders)
 
@@ -55,7 +56,7 @@ def fight(seconds=120.0, hp_floor=0.35, verbose=True):
         snapshot = ac.read_snapshot()
         player = snapshot["player"]
         hp_ratio = player["hp"] / max(1, player["max_hp"])
-        monsters = snapshot["visible_monsters"]
+        monsters = [m for m in snapshot["visible_monsters"] if m["slot"] not in ignored]
 
         visible_now = {m["slot"] for m in monsters}
         adjacent_now = {m["slot"] for m in monsters if m["dist_tiles"] <= 2}
@@ -70,7 +71,7 @@ def fight(seconds=120.0, hp_floor=0.35, verbose=True):
 
         if hp_ratio < hp_floor:
             print("  disengaging at %d%% health" % (hp_ratio * 100), flush=True)
-            return disengage(snapshot, kills, experience_start, level_start, gold_start)
+            return disengage(snapshot, kills, experience_start, level_start, gold_start), set()
 
         if not monsters:
             idle_rounds += 1
@@ -116,7 +117,7 @@ def fight(seconds=120.0, hp_floor=0.35, verbose=True):
                 hp_ratio * 100, player["experience"]), flush=True)
         time.sleep(0.15)
 
-    return report(ac.read_snapshot(), kills, experience_start, level_start, gold_start, reason)
+    return report(ac.read_snapshot(), kills, experience_start, level_start, gold_start, reason), unreachable
 
 
 def disengage(snapshot, kills, experience_start, level_start, gold_start):
@@ -150,6 +151,9 @@ def disengage(snapshot, kills, experience_start, level_start, gold_start):
 
 def report(snapshot, kills, experience_start, level_start, gold_start, reason):
     player = snapshot["player"]
+    # The caller needs to distinguish "nothing left to fight" from "everything visible is
+    # unreachable", because the second means go explore rather than engage again.
+    snapshot["_unreachable_reason"] = "all visible monsters unreachable" if reason == "no reachable target" else ""
     print("\nfight over (%s)" % reason)
     print("level: %s %s" % (snapshot["level"]["kind"], snapshot["level"]["dungeon_level"]))
     print("position: %s | hp %d/%d" % (tuple(player["tile"]), player["hp"], player["max_hp"]))

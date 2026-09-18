@@ -32,6 +32,19 @@ import loot
 
 XP_PER_LEVEL = {1: 2000, 2: 4000, 3: 8000, 4: 16000, 5: 32000}  # warrior thresholds, shipped data
 
+# How long a monster the engine cannot path to is set aside before being retried. Long
+# enough to explore and open the door it is probably behind, short enough to notice a
+# change. Without this the loop re-engages the same unreachable monster forever.
+UNREACHABLE_MEMORY_SECONDS = 60
+
+# Health fraction at which a healing item gets drunk. Above the retreat floor, so the
+# character tops up and stays in the fight rather than only drinking once it is losing.
+POTION_HP_THRESHOLD = 0.55
+
+# Walk to Pepin and talk when below this. The heal is free, so seeking it beats both
+# spending a potion and giving up on the run.
+HEAL_SEEK_THRESHOLD = 0.75
+
 
 def log(message):
     print("[%6.1fs] %s" % (time.time() - START, message), flush=True)
@@ -108,6 +121,7 @@ def play(seconds, hp_floor=0.4, descend_hp_floor=0.6, engagement_seconds=25):
     deadline = time.time() + seconds
     tried_doors = set()
     blocked_goals = set()
+    unreachable_until = {}
     snapshot = ac.read_snapshot()
     start = (snapshot["level"]["kind"], snapshot["level"]["dungeon_level"])
     log("start: %s level %d | hp %d/%d | exp %d" % (
@@ -121,6 +135,20 @@ def play(seconds, hp_floor=0.4, descend_hp_floor=0.6, engagement_seconds=25):
         dungeon_level = snapshot["level"]["dungeon_level"]
         in_town = snapshot["level"]["kind"] == "town"
 
+        # A dead character has no actions to take; issuing them just spams the engine.
+        if player["hp"] <= 0:
+            log("the character is dead - stopping here")
+            return False
+
+        # Drink before retreating. The belt is player knowledge and drinking is mechanical,
+        # so it belongs in the reflex tier: the character died at 58/70 with three potions
+        # unopened, which is exactly what this prevents.
+        if hp_ratio < POTION_HP_THRESHOLD and loot.drink(snapshot):
+            log("hp %d%% - drinking a potion from the belt" % (hp_ratio * 100))
+            time.sleep(0.6)
+            continue
+
+
         # --- success: this is the run's goal -------------------------------------------
         if dungeon_level >= 2:
             log("SUCCESS: reached dungeon level 2 with %d/%d hp, exp %d" % (
@@ -129,8 +157,21 @@ def play(seconds, hp_floor=0.4, descend_hp_floor=0.6, engagement_seconds=25):
 
         # --- town: travel to the cathedral --------------------------------------------
         if in_town:
+            # Pepin heals for free, so a hurt character in town has something to *do*
+            # rather than a reason to stop. Talking to him is the whole interaction.
+            healer = next((t for t in snapshot.get("townsfolk", []) if t["name"] == "pepin"), None)
+            if healer is not None and hp_ratio < HEAL_SEEK_THRESHOLD:
+                before_hp = player["hp"]
+                log("hp %d%% - going to Pepin at %s to be healed" % (hp_ratio * 100, healer["tile"]))
+                ac.walk_to(*healer["tile"])
+                ac.wait_for_arrival(healer["tile"][0], healer["tile"][1], timeout=30, epsilon=1)
+                ac.send("talk", slot=healer["index"])
+                time.sleep(2.0)
+                log("healer result: hp %d -> %d" % (before_hp, ac.read_snapshot()["player"]["hp"]))
+                continue
+
             if hp_ratio < hp_floor:
-                log("hurt in town (%d%%) - no healing implemented, ending the run" % (hp_ratio * 100))
+                log("hurt in town (%d%%), no healer known, nothing to drink - ending the run" % (hp_ratio * 100))
                 return False
             entrance = landmark(snapshot, "descend")
             if entrance is None:
@@ -169,16 +210,55 @@ def play(seconds, hp_floor=0.4, descend_hp_floor=0.6, engagement_seconds=25):
                 log("back in town")
             continue
 
-        if snapshot["visible_monsters"]:
+        # Set aside monsters the engine could not path to recently: they are usually behind
+        # a door nobody has opened yet, so exploring is what makes them reachable again.
+        now = time.time()
+        unreachable_until = {s: t for s, t in unreachable_until.items() if t > now}
+        ignore = set(unreachable_until)
+        engageable = [m for m in snapshot["visible_monsters"] if m["slot"] not in ignore]
+
+        if engageable:
             before = (player["experience"], player["hp"])
-            result = combat.fight(seconds=engagement_seconds, hp_floor=hp_floor)
+            result, stuck = combat.fight(
+                seconds=engagement_seconds, hp_floor=hp_floor, ignore_slots=ignore)
+            because = result["_unreachable_reason"]
+            for slot in stuck:
+                unreachable_until[slot] = time.time() + UNREACHABLE_MEMORY_SECONDS
             after = (result["player"]["experience"], result["player"]["hp"])
-            log("engagement done: exp %d->%d, hp %d->%d" % (before[0], after[0], before[1], after[1]))
+            log("engagement done: exp %d->%d, hp %d->%d%s" % (
+                before[0], after[0], before[1], after[1],
+                " (%s)" % because if because else ""))
             # Corpses are where loot comes from, and the drop lands in sight.
             taken = loot.clear_floor(result)
             if taken:
                 log("looted: %s" % ", ".join(taken))
             continue
+
+        # Everything in sight is unreachable right now. The usual cause is a shut door
+        # between here and there, so this is a route problem, not a reason to write the
+        # target off: plan a way through the doors we know about and open any shut one on
+        # that route. Only when no route through known floor exists at all does the answer
+        # become "explore more", because that is what reveals the way round.
+        if snapshot["visible_monsters"]:
+            target = min(snapshot["visible_monsters"], key=lambda m: m["dist_tiles"])
+            tile = tuple(target["tile"])
+            player_tile = tuple(player["tile"])
+            _, path = explore.bfs(explore.passable_grid(snapshot), player_tile, lambda t: t == tile)
+            if path:
+                shut_door = explore.first_closed_door_on_path(snapshot, path)
+                if shut_door is not None:
+                    log("the way to %s (slot %d, %d tiles) runs through the door at %s" % (
+                        target["type"], target["slot"], target["dist_tiles"], shut_door))
+                    open_door(snapshot, shut_door, tried_doors)
+                    continue
+                log("working round to %s (slot %d): %d tiles of open route" % (
+                    target["type"], target["slot"], len(path)))
+                ac.walk_to(*tile)
+                time.sleep(0.6)
+                continue
+            log("%s (slot %d) is in sight with no route through known floor - exploring to find one" % (
+                target["type"], target["slot"]))
+            unreachable_until[target["slot"]] = time.time() + UNREACHABLE_MEMORY_SECONDS
 
         # Anything already visible on the floor is worth more than unexplored floor.
         taken = loot.clear_floor(snapshot, stop_if_monsters=False, max_items=4)
@@ -226,6 +306,7 @@ def play(seconds, hp_floor=0.4, descend_hp_floor=0.6, engagement_seconds=25):
         # reflex tier can deal with the threat instead of the character walking past it.
         order_deadline = time.time() + 8
         stuck_since = None
+        last_tile = player_tile
         while time.time() < order_deadline and time.time() < deadline:
             time.sleep(0.4)
             try:
@@ -235,18 +316,25 @@ def play(seconds, hp_floor=0.4, descend_hp_floor=0.6, engagement_seconds=25):
             if now["visible_monsters"]:
                 break
             tile = tuple(now["player"]["tile"])
-            if max(abs(tile[0] - goal[0]), abs(tile[1] - goal[1])) <= 1:
+
+            # The goal is a tile we intend to stand on, so arrival must be exact. Treating
+            # "one tile away" as arrived hands back a goal beside the character, which is
+            # instantly satisfied, and the outer loop re-plans the same tile forever without
+            # ever taking a step (observed: the map frozen at 190 tiles for minutes).
+            if tile == goal:
                 break
-            # Standing still under a live order means the engine cannot satisfy it, so stop
-            # asking for this goal and try the next frontier instead of livelocking on it.
-            if tile == player_tile:
+
+            # No movement since the previous look means the engine cannot satisfy this order
+            # - the unseen tile turned out to be rock - so drop this goal and try another.
+            if tile == last_tile:
                 if stuck_since is None:
                     stuck_since = time.time()
                 elif time.time() - stuck_since > 4:
-                    log("goal %s unreachable (stood still 4s) - trying another frontier" % (goal,))
+                    log("goal %s unreachable (no movement for 4s) - trying another frontier" % (goal,))
                     blocked_goals.add(goal)
                     break
             else:
+                last_tile = tile
                 stuck_since = None
 
     log("time budget exhausted")

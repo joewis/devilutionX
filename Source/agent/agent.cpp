@@ -20,6 +20,7 @@
 #include "monster.h"
 #include "objects.h"
 #include "player.h"
+#include "towners.h"
 #include "utils/paths.h"
 
 namespace devilution::agent {
@@ -80,6 +81,51 @@ const char *HealthBand(const Monster &monster)
 	if (percent >= 50) return "wounded";
 	if (percent >= 20) return "badly_wounded";
 	return "near_death";
+}
+
+/** What a monster is visibly doing. Mode is the animation-level state ("delayed" is a
+ *  monster mid-action such as eating); goal is the strategic intent behind it, which is the
+ *  part that matters for a decision - a Scavenger on MonsterGoal::Healing has broken off to
+ *  find a corpse and will come back healed, and standing at range re-issuing attack orders
+ *  at it is not a plan. Both are things a player watching the screen can see. */
+const char *MonsterModeName(MonsterMode mode)
+{
+	switch (mode) {
+	case MonsterMode::Stand: return "standing";
+	case MonsterMode::MoveNorthwards:
+	case MonsterMode::MoveSouthwards:
+	case MonsterMode::MoveSideways: return "moving";
+	case MonsterMode::MeleeAttack: return "melee_attack";
+	case MonsterMode::HitRecovery: return "hit_recovery";
+	case MonsterMode::Death: return "dying";
+	case MonsterMode::SpecialMeleeAttack: return "special_melee";
+	case MonsterMode::FadeIn: return "fading_in";
+	case MonsterMode::FadeOut: return "fading_out";
+	case MonsterMode::RangedAttack: return "ranged_attack";
+	case MonsterMode::SpecialStand: return "special_stand";
+	case MonsterMode::SpecialRangedAttack: return "special_ranged";
+	case MonsterMode::Delay: return "delayed";
+	case MonsterMode::Charge: return "charging";
+	case MonsterMode::Petrified: return "petrified";
+	case MonsterMode::Heal: return "healing";
+	case MonsterMode::Talk: return "talking";
+	}
+	return "unknown";
+}
+
+const char *MonsterGoalName(MonsterGoal goal)
+{
+	switch (goal) {
+	case MonsterGoal::None: return "none";
+	case MonsterGoal::Normal: return "normal";
+	case MonsterGoal::Retreat: return "retreating";
+	case MonsterGoal::Healing: return "seeking_healing";
+	case MonsterGoal::Move: return "moving_to";
+	case MonsterGoal::Attack: return "attacking";
+	case MonsterGoal::Inquiring: return "inquiring";
+	case MonsterGoal::Talking: return "talking";
+	}
+	return "unknown";
 }
 
 const char *LevelKind(dungeon_type type)
@@ -412,6 +458,34 @@ void AppendGroundItems(std::ostringstream &out, Point playerTile)
 	out << "]";
 }
 
+/** The townsfolk the player can see. In town this is how an objective like "get healed"
+ *  becomes a destination: Pepin is a Towner with _ttype TOWN_HEALER, and talking to him runs
+ *  TalkToHealer -> StartHealer -> HealPlayer, which is the free heal. Nothing is
+ *  reimplemented here; the agent just needs to know who is where to walk up and talk. */
+void AppendTownsfolk(std::ostringstream &out, Point playerTile)
+{
+	out << ",\"townsfolk\":[";
+	bool first = true;
+	for (size_t i = 0; i < Towners.size(); i++) {
+		const Towner &towner = Towners[i];
+		const Point tile = towner.position;
+		if (!IsTileExplored(tile)) continue;
+
+		if (!first) out << ",";
+		first = false;
+		const auto shortName = TownerShortNames.find(towner._ttype);
+		out << "{\"index\":" << i
+		    << ",\"tile\":" << Tile(tile)
+		    << ",\"name\":\"" << EscapeJson(shortName != TownerShortNames.end() ? shortName->second : "unknown") << "\""
+		    << ",\"ttype\":" << static_cast<int>(towner._ttype)
+		    << ",\"in_sight\":" << (IsTileVisible(tile) ? "true" : "false")
+		    << ",\"dist_tiles\":" << TileDistance(playerTile, tile)
+		    << ",\"bearing_deg\":" << BearingDegrees(playerTile, tile)
+		    << "}";
+	}
+	out << "]";
+}
+
 /** What the character is wearing and carrying on the belt. The player sheet is the player's
  *  own knowledge, so nothing here needs a visibility filter. */
 void AppendEquipment(std::ostringstream &out)
@@ -541,6 +615,16 @@ void ExecuteCommand(const std::string &command, int x, int y, int slot)
 		UseInvItem(slot);
 		return;
 	}
+	if (command == "talk") {
+		// Mirrors OnTalkXY: destParam1 carries the towner index. Walking up to Pepin and
+		// talking is the whole of "go get healed" - the engine does the healing.
+		if (slot < 0 || slot >= static_cast<int>(Towners.size())) return;
+		const Point position = Towners[slot].position;
+		MakePlrPath(player, position, false);
+		player.destAction = ACTION_TALK;
+		player.destParam1 = slot;
+		return;
+	}
 	if (command == "equip") {
 		// The engine decides whether the character *can* wear it (stats, two hands, class);
 		// whether it is an upgrade is the policy's call, not the engine's.
@@ -662,6 +746,8 @@ void AppendSnapshot(std::ostringstream &out, int lastCommandSeq)
 		    << ",\"bearing_deg\":" << BearingDegrees(playerTile, monsterTile)
 		    << ",\"dist_tiles\":" << TileDistance(playerTile, monsterTile)
 		    << ",\"mode\":" << static_cast<int>(monster.mode)
+		    << ",\"mode_name\":\"" << MonsterModeName(monster.mode) << "\""
+		    << ",\"goal\":\"" << MonsterGoalName(monster.goal) << "\""
 		    << ",\"health\":\"" << HealthBand(monster) << "\""
 		    << ",\"unique\":" << (monster.isUnique() ? "true" : "false")
 		    << "}";
@@ -671,6 +757,7 @@ void AppendSnapshot(std::ostringstream &out, int lastCommandSeq)
 	AppendLandmarks(out, playerTile);
 	AppendObjects(out, playerTile);
 	AppendGroundItems(out, playerTile);
+	AppendTownsfolk(out, playerTile);
 	AppendEquipment(out);
 	AppendMapGrid(out, playerTile);
 

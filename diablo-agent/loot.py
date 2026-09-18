@@ -23,6 +23,12 @@ import agent_client as ac
 
 MAX_BELT_POTIONS = 8
 
+# INVITEM_BELT_FIRST: how the engine addresses belt slots to UseInvItem.
+BELT_FIRST = 47
+
+# Best first. A Warrior has no use for mana, so those are not drinking candidates.
+HEALING_EFFECTS = ("full rejuvenation potion", "rejuvenation potion", "full healing potion", "healing potion")
+
 POTION_EFFECTS = {
     "healing potion",
     "full healing potion",
@@ -144,3 +150,21 @@ def clear_floor(snapshot, max_items=6, stop_if_monsters=True):
         snapshot = take_one(item)
         taken.append(item["name"])
     return taken
+
+
+def healing_potion(snapshot):
+    """Belt slot of the best healing item carried, or None."""
+    for effect in HEALING_EFFECTS:
+        for entry in snapshot["belt"]:
+            if entry["effect"] == effect:
+                return entry["belt_slot"]
+    return None
+
+
+def drink(snapshot):
+    """Drink the best healing item in the belt. Returns False if there is nothing to drink."""
+    slot = healing_potion(snapshot)
+    if slot is None:
+        return False
+    ac.send("use", slot=BELT_FIRST + slot)
+    return True

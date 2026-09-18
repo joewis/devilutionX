@@ -125,9 +125,40 @@ def is_frontier(grid, tile):
 
 
 def nearest_frontier(grid, start, avoid=()):
-    """Nearest frontier by actual walking distance, not straight-line."""
+    """Nearest edge of the unknown: an unseen tile touching floor the character can reach.
+
+    The goal is the *unknown* tile, not the known tile beside it. Aiming at the known one
+    makes the search return the tile the character is already standing on whenever it has an
+    unseen neighbour, and walking to your own tile is a no-op — the loop then re-aims at the
+    same tile forever (observed: four minutes of "exploring toward (53,66), 1 tile of path"
+    with the map frozen). Stepping into the unknown tile is also what a player does when they
+    click into the fog, and the engine paths it happily because it knows the level.
+
+    The returned path ends on the unseen tile. If that tile turns out to be rock, the order
+    fails harmlessly and the caller's stuck detector moves on to the next frontier.
+    """
     avoid = set(avoid)
-    return bfs(grid, start, lambda tile: tile not in avoid and is_frontier(grid, tile))
+    width = len(grid[0])
+    height = len(grid)
+
+    def in_bounds(tile):
+        return 0 <= tile[0] < width and 0 <= tile[1] < height
+
+    queue = deque([(start, [start])])
+    visited = {start}
+    while queue:
+        tile, path = queue.popleft()
+        for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1), (1, 1), (1, -1), (-1, 1), (-1, -1)):
+            candidate = (tile[0] + dx, tile[1] + dy)
+            if not in_bounds(candidate) or candidate in avoid:
+                continue
+            if grid[candidate[1]][candidate[0]] == " ":
+                return candidate, path + [candidate]
+        for neighbour in neighbours(grid, tile):
+            if neighbour not in visited:
+                visited.add(neighbour)
+                queue.append((neighbour, path + [neighbour]))
+    return None, []
 
 
 def first_closed_door_on_path(snapshot, path):

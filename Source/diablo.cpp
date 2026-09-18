@@ -22,6 +22,7 @@
 #include <config.h>
 
 #include "DiabloUI/selstart.h"
+#include "agent/agent.hpp"
 #include "appfat.h"
 #include "automap.h"
 #include "capture.h"
@@ -1568,6 +1569,10 @@ void GameLogic()
 	pfile_update(false);
 
 	plrctrls_after_game_logic();
+
+	// Agent perception hook. Must run after the light/vision lists above so the tile
+	// visibility flags it filters on are the ones just computed for this frame.
+	agent::Tick();
 }
 
 void TimeoutCursor(bool bTimeout)

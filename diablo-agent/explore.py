@@ -53,25 +53,63 @@ def passable_grid(snapshot):
     return ["".join(row) for row in grid]
 
 
-def bfs(grid, start, is_goal):
-    """Breadth-first search over seen floor tiles; returns (goal, path) or (None, [])."""
+def neighbours(grid, tile):
+    """Walkable neighbours of a tile, diagonals included.
+
+    DevilutionX moves in eight directions, so a four-directional search does not see the
+    level the character actually walks. Dungeon corridors zigzag - (75,87) to (76,86) to
+    (77,85) is all diagonal - and a four-way search reads those as walls, concludes the
+    character is sealed in a small pocket, and declares a half-explored level finished.
+
+    A diagonal step is allowed when either of the two tiles it passes between is walkable,
+    which is what the engine does: the character demonstrably walked these zigzags while
+    the orthogonal tiles beside them were solid.
+    """
+    x, y = tile
     width = len(grid[0])
     height = len(grid)
+
+    def walkable(px, py):
+        return 0 <= px < width and 0 <= py < height and grid[py][px] in SEEN_FLOOR
+
+    for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+        if walkable(x + dx, y + dy):
+            yield (x + dx, y + dy)
+    for dx, dy in ((1, 1), (1, -1), (-1, 1), (-1, -1)):
+        if not walkable(x + dx, y + dy):
+            continue
+        # Refuse to slip through a diagonal gap that is closed on both sides.
+        if walkable(x + dx, y) or walkable(x, y + dy):
+            yield (x + dx, y + dy)
+
+
+def bfs(grid, start, is_goal):
+    """Breadth-first search over seen floor tiles; returns (goal, path) or (None, [])."""
     queue = deque([(start, [start])])
     visited = {start}
     while queue:
-        (x, y), path = queue.popleft()
-        if is_goal((x, y)):
-            return (x, y), path
-        for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
-            nx, ny = x + dx, y + dy
-            if not (0 <= nx < width and 0 <= ny < height):
+        tile, path = queue.popleft()
+        if is_goal(tile):
+            return tile, path
+        for neighbour in neighbours(grid, tile):
+            if neighbour in visited:
                 continue
-            if (nx, ny) in visited or grid[ny][nx] not in SEEN_FLOOR:
-                continue
-            visited.add((nx, ny))
-            queue.append(((nx, ny), path + [(nx, ny)]))
+            visited.add(neighbour)
+            queue.append((neighbour, path + [neighbour]))
     return None, []
+
+
+def reachable_from(snapshot, start):
+    """Seen floor the character can actually walk to, by the engine's own movement rules."""
+    grid = passable_grid(snapshot)
+    reached = {start}
+    queue = deque([start])
+    while queue:
+        for neighbour in neighbours(grid, queue.popleft()):
+            if neighbour not in reached:
+                reached.add(neighbour)
+                queue.append(neighbour)
+    return reached
 
 
 def is_frontier(grid, tile):
@@ -79,7 +117,7 @@ def is_frontier(grid, tile):
     x, y = tile
     width = len(grid[0])
     height = len(grid)
-    for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+    for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1), (1, 1), (1, -1), (-1, 1), (-1, -1)):
         nx, ny = x + dx, y + dy
         if 0 <= nx < width and 0 <= ny < height and grid[ny][nx] == " ":
             return True

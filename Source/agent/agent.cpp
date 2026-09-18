@@ -10,7 +10,9 @@
 #include <string>
 
 #include "automap.h"
+#include "cursor.h"
 #include "engine/point.hpp"
+#include "inv.h"
 #include "levels/dun_tile_data.hpp"
 #include "levels/gendung_defs.hpp"
 #include "levels/tile_properties.hpp"
@@ -285,6 +287,164 @@ void AppendObjects(std::ostringstream &out, Point playerTile)
 	out << "]";
 }
 
+const char *ItemClassName(const Item &item)
+{
+	switch (item._iClass) {
+	case ICLASS_WEAPON: return "weapon";
+	case ICLASS_ARMOR: return "armor";
+	case ICLASS_GOLD: return "gold";
+	case ICLASS_QUEST: return "quest";
+	case ICLASS_MISC: return "misc";
+	default: return "other";
+	}
+}
+
+/** What a miscellaneous item is for, in the terms a player thinks in: potions by effect,
+ *  the rest by category. Weapons and armour are named well enough by their own name. */
+const char *MiscEffect(const Item &item)
+{
+	if (item._itype == ItemType::Gold) return "gold";
+	switch (item._iMiscId) {
+	case IMISC_HEAL: return "healing potion";
+	case IMISC_FULLHEAL: return "full healing potion";
+	case IMISC_MANA: return "mana potion";
+	case IMISC_FULLMANA: return "full mana potion";
+	case IMISC_REJUV: return "rejuvenation potion";
+	case IMISC_FULLREJUV: return "full rejuvenation potion";
+	case IMISC_ELIXSTR: return "elixir of strength";
+	case IMISC_ELIXMAG: return "elixir of magic";
+	case IMISC_ELIXDEX: return "elixir of dexterity";
+	case IMISC_ELIXVIT: return "elixir of vitality";
+	case IMISC_SCROLL:
+	case IMISC_SCROLLT: return "scroll";
+	case IMISC_BOOK: return "book";
+	case IMISC_STAFF: return "staff";
+	case IMISC_RING: return "ring";
+	case IMISC_AMULET: return "amulet";
+	default: return "";
+	}
+}
+
+/** Where an item can be worn (ILOC_*), which is the item's own property. Not to be
+ *  confused with EquipSlotName below: ILOC_ONEHAND and INVLOC_RING_LEFT are both 1, and
+ *  mapping one through the other's names silently mislabels every weapon and ring. */
+const char *ItemEquipKind(int loc)
+{
+	switch (loc) {
+	case ILOC_ONEHAND: return "one_hand";
+	case ILOC_TWOHAND: return "two_hand";
+	case ILOC_ARMOR: return "body";
+	case ILOC_HELM: return "head";
+	case ILOC_RING: return "ring";
+	case ILOC_AMULET: return "amulet";
+	case ILOC_BELT: return "belt";
+	case ILOC_UNEQUIPABLE: return "unequipable";
+	default: return "none";
+	}
+}
+
+/** Which worn slot an entry in InvBody occupies (INVLOC_*). */
+const char *EquipSlotName(int loc)
+{
+	switch (loc) {
+	case INVLOC_HEAD: return "head";
+	case INVLOC_RING_LEFT: return "ring_left";
+	case INVLOC_RING_RIGHT: return "ring_right";
+	case INVLOC_AMULET: return "amulet";
+	case INVLOC_HAND_LEFT: return "hand_left";
+	case INVLOC_HAND_RIGHT: return "hand_right";
+	case INVLOC_CHEST: return "body";
+	default: return "none";
+	}
+}
+
+/** One item as the player sees it. An unidentified magic item reports its base name only -
+ *  exactly what the game draws - because a prefix the character has not identified is not
+ *  knowledge the agent is entitled to either. Writes fields without the enclosing braces so
+ *  callers can merge in their own (tile, slot, index). */
+void AppendItemFields(std::ostringstream &out, const Item &item)
+{
+	const bool identified = item._iIdentified || item._iMagical == ITEM_QUALITY_NORMAL;
+	const std::string name = (item._iIdentified && item._iIName[0] != '\0') ? std::string(item._iIName) : std::string(item._iName);
+
+	out << "\"name\":\"" << EscapeJson(name) << "\""
+	    << ",\"class\":\"" << ItemClassName(item) << "\""
+	    << ",\"effect\":\"" << MiscEffect(item) << "\""
+	    << ",\"itype\":" << static_cast<int>(item._itype)
+	    << ",\"magical\":" << static_cast<int>(item._iMagical)
+	    << ",\"identified\":" << (identified ? "true" : "false")
+	    << ",\"equip_slot\":\"" << ItemEquipKind(item._iLoc) << "\""
+	    << ",\"min_damage\":" << static_cast<int>(item._iMinDam)
+	    << ",\"max_damage\":" << static_cast<int>(item._iMaxDam)
+	    << ",\"ac\":" << static_cast<int>(item._iAC)
+	    << ",\"value\":" << item._ivalue
+	    << ",\"identified_value\":" << item._iIvalue
+	    << ",\"durability\":" << item._iDurability
+	    << ",\"max_durability\":" << item._iMaxDur
+	    << ",\"spell\":" << static_cast<int>(item._iSpell);
+}
+
+/** Loot on the floor, under the same rule as monsters: if it is not in the light, the
+ *  player cannot see it, so the agent is not told about it. Items walked past and left in
+ *  the dark drop out again, which is also what the game draws. */
+void AppendGroundItems(std::ostringstream &out, Point playerTile)
+{
+	out << ",\"ground_items\":[";
+	bool first = true;
+	for (int i = 0; i < ActiveItemCount; i++) {
+		const Item &item = Items[ActiveItems[i]];
+		const Point tile = item.position;
+		if (!IsTileVisible(tile)) continue;
+
+		if (!first) out << ",";
+		first = false;
+		// ActiveItems holds uint8_t, and streaming a uint8_t emits a *character*: index 10
+		// lands in the JSON as a raw newline and the whole snapshot fails to parse. Cast
+		// explicitly; the object and monster tables are int and unsigned, so they are safe.
+		out << "{\"index\":" << static_cast<int>(ActiveItems[i])
+		    << ",\"tile\":" << Tile(tile)
+		    << ",\"bearing_deg\":" << BearingDegrees(playerTile, tile)
+		    << ",\"dist_tiles\":" << TileDistance(playerTile, tile)
+		    << ",";
+		AppendItemFields(out, item);
+		out << "}";
+	}
+	out << "]";
+}
+
+/** What the character is wearing and carrying on the belt. The player sheet is the player's
+ *  own knowledge, so nothing here needs a visibility filter. */
+void AppendEquipment(std::ostringstream &out)
+{
+	const Player &player = *MyPlayer;
+
+	out << ",\"equipment\":[";
+	bool first = true;
+	for (int loc = 0; loc < NUM_INVLOC; loc++) {
+		const Item &item = player.InvBody[loc];
+		if (item._itype == ItemType::None) continue;
+		if (!first) out << ",";
+		first = false;
+		out << "{\"slot\":\"" << EquipSlotName(loc) << "\",";
+		AppendItemFields(out, item);
+		out << "}";
+	}
+	out << "]";
+
+	out << ",\"belt\":[";
+	first = true;
+	for (int i = 0; i < MaxBeltItems; i++) {
+		const Item &item = player.SpdList[i];
+		if (item._itype == ItemType::None) continue;
+		if (!first) out << ",";
+		first = false;
+		out << "{\"belt_slot\":" << i << ",";
+		AppendItemFields(out, item);
+		out << "}";
+	}
+	out << "]";
+}
+
 /** Minimal field readers for the command file. Deliberately tiny: the agent owns both
  *  ends of this channel, and pulling a JSON library into the engine for four fields is
  *  not worth the dependency. */
@@ -361,6 +521,45 @@ void ExecuteCommand(const std::string &command, int x, int y, int slot)
 			MakePlrPath(player, target, false);
 		player.destAction = ACTION_ATTACKMON;
 		player.destParam1 = slot;
+		return;
+	}
+	if (command == "pickup") {
+		// Mirrors OnGotoGetItem: the index is an entry in Items[], and the path is made to
+		// the dropped item's tile so the character walks over and takes it.
+		const Point position { x, y };
+		if (!InDungeonBounds(position)) return;
+		if (slot < 0 || slot > MAXITEMS) return;
+		if (Items[slot]._itype == ItemType::None) return;
+		MakePlrPath(player, position, false);
+		player.destAction = ACTION_PICKUPITEM;
+		player.destParam1 = slot;
+		return;
+	}
+	if (command == "use") {
+		// Belt and worn items are addressed the same way the inventory UI addresses them.
+		if (slot < INVITEM_BELT_FIRST) return;
+		UseInvItem(slot);
+		return;
+	}
+	if (command == "equip") {
+		// The engine decides whether the character *can* wear it (stats, two hands, class);
+		// whether it is an upgrade is the policy's call, not the engine's.
+		Item &held = player.HoldItem;
+		if (held.isEmpty()) return;
+		if (!AutoEquip(player, held)) return; // cannot be worn: keep holding, let the caller stow it
+		held.clear();
+		NewCursor(CURSOR_HAND);
+		return;
+	}
+	if (command == "stow") {
+		// Belt before inventory: potions belong where they can be drunk from.
+		Item &held = player.HoldItem;
+		if (held.isEmpty()) return;
+		if (!AutoPlaceItemInBelt(player, held, true) && !AutoPlaceItemInInventory(player, held, true))
+			return; // no room: the character keeps holding it, which the snapshot reports
+		held.clear();
+		NewCursor(CURSOR_HAND);
+		return;
 	}
 }
 
@@ -419,6 +618,7 @@ void AppendSnapshot(std::ostringstream &out, int lastCommandSeq)
 	    << ",\"mana\":" << WholePoints(player._pMana)
 	    << ",\"max_mana\":" << WholePoints(player._pMaxMana)
 	    << ",\"character_level\":" << static_cast<int>(player.getCharacterLevel())
+	    << ",\"experience\":" << player._pExperience
 	    << ",\"gold\":" << player._pGold
 	    << ",\"armor_class\":" << static_cast<int>(player._pArmorClass)
 	    << ",\"light_radius_tiles\":" << static_cast<int>(player._pLightRad)
@@ -429,6 +629,18 @@ void AppendSnapshot(std::ostringstream &out, int lastCommandSeq)
 	    << ",\"mode\":" << static_cast<int>(player._pmode)
 	    << ",\"dest_action\":" << static_cast<int>(player.destAction)
 	    << "}";
+
+	// The hand is player-visible state with teeth: the engine only picks an item up when the
+	// cursor is a free hand, so anything held has to be equipped or stowed first.
+	out << ",\"hand_free\":" << (player.HoldItem.isEmpty() ? "true" : "false");
+	out << ",\"holding\":";
+	if (player.HoldItem.isEmpty()) {
+		out << "null";
+	} else {
+		out << "{";
+		AppendItemFields(out, player.HoldItem);
+		out << "}";
+	}
 
 	// The perception filter. IsTileVisible is the engine's own answer to "is this tile in
 	// the player's light radius with clear line of sight", so sight here is exactly what
@@ -458,6 +670,8 @@ void AppendSnapshot(std::ostringstream &out, int lastCommandSeq)
 
 	AppendLandmarks(out, playerTile);
 	AppendObjects(out, playerTile);
+	AppendGroundItems(out, playerTile);
+	AppendEquipment(out);
 	AppendMapGrid(out, playerTile);
 
 	out << ",\"last_command_seq\":" << lastCommandSeq << "}";
@@ -487,10 +701,20 @@ void Tick()
 	std::ostringstream out;
 	AppendSnapshot(out, lastCommandSeq);
 
+	// Write to a temp file and rename it into place. Renaming is atomic, so a reader sees
+	// either the whole previous snapshot or the whole new one - never a half-written file.
+	// Writing in place is what tore a read mid-session: the reader polls at 200 ms and the
+	// writer truncates the file it is about to fill.
 	const std::string path = PrefFile("agent-snapshot.json");
-	std::ofstream file(path, std::ios::trunc);
-	if (!file) return;
-	file << out.str();
+	const std::string tmpPath = path + ".tmp";
+	{
+		std::ofstream file(tmpPath, std::ios::trunc);
+		if (!file) return;
+		file << out.str();
+		file.flush();
+		if (!file) return;
+	}
+	if (std::rename(tmpPath.c_str(), path.c_str()) != 0) return;
 }
 
 } // namespace devilution::agent

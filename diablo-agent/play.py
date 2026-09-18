@@ -28,6 +28,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import agent_client as ac
 import combat
 import explore
+import loot
 
 XP_PER_LEVEL = {1: 2000, 2: 4000, 3: 8000, 4: 16000, 5: 32000}  # warrior thresholds, shipped data
 
@@ -53,22 +54,6 @@ def wait_for_level_change(expect, timeout=60):
 def landmark(snapshot, kind):
     found = [l for l in snapshot["landmarks"] if l["kind"] == kind]
     return found[0] if found else None
-
-
-def reachable_from(snapshot, start):
-    """Seen floor tiles the character can actually walk to without crossing a blocked tile."""
-    from collections import deque
-    grid = explore.passable_grid(snapshot)
-    seen_floor = {(x, y) for y, row in enumerate(grid) for x, c in enumerate(row) if c in explore.SEEN_FLOOR}
-    queue, visited = deque([start]), {start}
-    while queue:
-        x, y = queue.popleft()
-        for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
-            n = (x + dx, y + dy)
-            if n in seen_floor and n not in visited:
-                visited.add(n)
-                queue.append(n)
-    return visited
 
 
 def open_door(snapshot, tile, tried):
@@ -158,6 +143,20 @@ def play(seconds, hp_floor=0.4, descend_hp_floor=0.6, engagement_seconds=25):
             continue
 
         # --- dungeon -------------------------------------------------------------------
+        # Never keep an item in hand. The engine only begins a pickup when the cursor is a
+        # free hand, and it fails silently otherwise, so a character left holding something
+        # stops looting forever without a single error.
+        if not snapshot["hand_free"]:
+            held = snapshot.get("holding") or {}
+            if held.get("class") in ("weapon", "armor") and loot.is_upgrade(snapshot, held):
+                log("holding %s - equipping it" % held.get("name"))
+                ac.send("equip")
+            else:
+                log("holding %s - stowing it" % held.get("name"))
+                ac.send("stow")
+            time.sleep(0.8)
+            continue
+
         if hp_ratio < hp_floor:
             log("hp %d%% below floor - falling back to the stairs" % (hp_ratio * 100))
             stairs = landmark(snapshot, "ascend")
@@ -175,7 +174,18 @@ def play(seconds, hp_floor=0.4, descend_hp_floor=0.6, engagement_seconds=25):
             result = combat.fight(seconds=engagement_seconds, hp_floor=hp_floor)
             after = (result["player"]["experience"], result["player"]["hp"])
             log("engagement done: exp %d->%d, hp %d->%d" % (before[0], after[0], before[1], after[1]))
+            # Corpses are where loot comes from, and the drop lands in sight.
+            taken = loot.clear_floor(result)
+            if taken:
+                log("looted: %s" % ", ".join(taken))
             continue
+
+        # Anything already visible on the floor is worth more than unexplored floor.
+        taken = loot.clear_floor(snapshot, stop_if_monsters=False, max_items=4)
+        if taken:
+            log("looted: %s" % ", ".join(taken))
+            snapshot = ac.read_snapshot()
+            player = snapshot["player"]
 
         stairs_down = landmark(snapshot, "descend")
         if stairs_down is not None and hp_ratio >= descend_hp_floor:
@@ -196,7 +206,7 @@ def play(seconds, hp_floor=0.4, descend_hp_floor=0.6, engagement_seconds=25):
         if goal is None:
             # Nothing to aim at. Before declaring the level finished, clear a door: the
             # unseen space behind it is invisible, not absent.
-            if try_open_any_known_door(snapshot, reachable_from(snapshot, player_tile), tried_doors):
+            if try_open_any_known_door(snapshot, explore.reachable_from(snapshot, player_tile), tried_doors):
                 continue
             log("level %d exhausted: no frontier and no door left to open" % dungeon_level)
             return False

@@ -428,4 +428,18 @@ about from the source.
    while the agent re-issues the same order forever (observed: 90 s livelocked on one goal).
    A stuck detector — no movement for 4 s under a live order — marks that goal unreachable
    and picks another frontier.
+3. **Movement is eight-directional; a four-directional search cannot see the level.** Dungeon
+   corridors zigzag — (75,87) → (76,86) → (77,85) is all diagonal — so a four-way BFS reads
+   those as walls and concludes the character is sealed in a small pocket. Observed: 8 of 441
+   seen floor tiles "reachable", exploration declared the level exhausted, and the way down
+   was never found even though the engine walked straight out when asked. Fixed by searching
+   eight ways, allowing a diagonal step when either tile it passes between is walkable
+   (verified: the engine walks exactly that). Reachable went 8 → 434 of 442.
+4. **`uint8_t` streamed into an ostream emits a character, not a number.**
+   `ActiveItems[MAXITEMS]` is `uint8_t`, so item index 10 became a raw newline inside the JSON
+   and every snapshot failed to parse — but only once a ground item existed, which made it
+   look exactly like a half-written file. The object and monster tables are `int`/`unsigned`
+   and were never affected. Cast explicitly.
+5. **Snapshot writes must be atomic.** Writing the file in place means a 200 ms reader can
+   catch it truncated; write to a temp file and rename it into place.
 

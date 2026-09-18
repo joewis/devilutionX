@@ -29,16 +29,30 @@ class GameNotRunning(RuntimeError):
     """No fresh snapshot: the game is at a menu, or the agent module is not loaded."""
 
 
-def read_snapshot(max_age_seconds=2.0):
-    """Return the latest snapshot, raising if it is missing or stale."""
+def read_snapshot(max_age_seconds=2.0, attempts=3):
+    """Return the latest snapshot, raising if it is missing or stale.
+
+    The engine writes to a temp file and renames it into place, so a partial file should be
+    impossible; the retry below is insurance for the gap between opening and reading on
+    filesystems with weaker rename semantics, and it costs nothing when reads are clean.
+    """
     try:
         age = time.time() - os.path.getmtime(SNAPSHOT_PATH)
     except FileNotFoundError:
         raise GameNotRunning(f"no snapshot at {SNAPSHOT_PATH} (game at menu, or module not loaded)")
     if age > max_age_seconds:
         raise GameNotRunning(f"snapshot is {age:.1f}s old (game paused, closed, or not in a game)")
-    with open(SNAPSHOT_PATH) as handle:
-        return json.load(handle)
+
+    for attempt in range(attempts):
+        try:
+            with open(SNAPSHOT_PATH) as handle:
+                return json.load(handle)
+        except json.JSONDecodeError as exc:
+            if attempt == attempts - 1:
+                raise GameNotRunning(f"snapshot is not valid JSON after {attempts} reads: {exc}")
+            time.sleep(0.05)
+
+    raise GameNotRunning("snapshot unreadable")  # unreachable; keeps the return path total
 
 
 def send(cmd, **params):

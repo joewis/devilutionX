@@ -121,7 +121,7 @@ def try_open_any_known_door(snapshot, reachable, tried):
     return False
 
 
-def play(seconds, hp_floor=0.4, descend_hp_floor=0.6, engagement_seconds=25):
+def play(seconds, hp_floor=0.4, descend_hp_floor=0.6, engagement_seconds=25, target_level=3):
     deadline = time.time() + seconds
     tried_doors = set()
     blocked_goals = set()
@@ -154,8 +154,8 @@ def play(seconds, hp_floor=0.4, descend_hp_floor=0.6, engagement_seconds=25):
 
 
         # --- success: this is the run's goal -------------------------------------------
-        if dungeon_level >= 2:
-            log("SUCCESS: reached dungeon level 2 with %d/%d hp, exp %d" % (
+        if dungeon_level >= target_level:
+            log("SUCCESS: reached dungeon level %d with %d/%d hp, exp %d" % (target_level, 
                 player["hp"], player["max_hp"], player["experience"]))
             return True
 
@@ -357,6 +357,8 @@ def play(seconds, hp_floor=0.4, descend_hp_floor=0.6, engagement_seconds=25):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
+    parser.add_argument("--target-level", type=int, default=3,
+                    help="descend until this dungeon level is reached")
     parser.add_argument("--seconds", type=float, default=600.0)
     parser.add_argument("--hp-floor", type=float, default=0.4)
     parser.add_argument("--descend-hp-floor", type=float, default=0.6)
@@ -365,6 +367,6 @@ if __name__ == "__main__":
 
     START = time.time()
     try:
-        play(args.seconds, args.hp_floor, args.descend_hp_floor, args.engagement_seconds)
+        play(args.seconds, args.hp_floor, args.descend_hp_floor, args.engagement_seconds, args.target_level)
     except ac.GameNotRunning as exc:
         log("stopped: %s" % exc)

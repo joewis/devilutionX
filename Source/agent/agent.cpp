@@ -20,6 +20,7 @@
 #include "monster.h"
 #include "objects.h"
 #include "player.h"
+#include "quests.h"
 #include "stores.h"
 #include "towners.h"
 #include "utils/paths.h"
@@ -459,6 +460,40 @@ void AppendGroundItems(std::ostringstream &out, Point playerTile)
 	out << "]";
 }
 
+/** The quest log: what the player has been told to do, and how far along it is.
+ *
+ *  _qlog is the game's own flag for "this belongs in the player's quest log", which is
+ *  exactly the player-knowledge boundary - the Butcher is on level 2 regardless, but "kill
+ *  the Butcher" is not a goal until a book or Cain has put it in the log. Reading it from
+ *  Quests keeps the agent honest about what it is supposed to know. */
+void AppendQuests(std::ostringstream &out)
+{
+	out << ",\"quests\":[";
+	bool first = true;
+	for (int i = 0; i < MAXQUESTS; i++) {
+		const Quest &quest = Quests[i];
+
+		if (!first) out << ",";
+		first = false;
+		const char *state = "unknown";
+		switch (quest._qactive) {
+		case QUEST_INIT: state = "not_started"; break;
+		case QUEST_ACTIVE: state = "active"; break;
+		case QUEST_DONE: state = "done"; break;
+		case QUEST_NOTAVAIL: state = "unavailable"; break;
+		}
+		const std::string title = i < static_cast<int>(QuestsData.size()) ? QuestsData[i]._qlstr : std::string();
+		out << "{\"id\":" << i
+		    << ",\"title\":\"" << EscapeJson(title) << "\""
+		    << ",\"state\":\"" << state << "\""
+		    << ",\"level\":" << static_cast<int>(quest._qlevel)
+		    << ",\"done\":" << (quest._qactive == QUEST_DONE ? "true" : "false")
+		    << ",\"in_log\":" << (quest._qlog ? "true" : "false")
+		    << "}";
+	}
+	out << "]";
+}
+
 /** The townsfolk the player can see. In town this is how an objective like "get healed"
  *  becomes a destination: Pepin is a Towner with _ttype TOWN_HEALER, and talking to him runs
  *  TalkToHealer -> StartHealer -> HealPlayer, which is the free heal. Nothing is
@@ -772,6 +807,7 @@ void AppendSnapshot(std::ostringstream &out, int lastCommandSeq)
 	AppendObjects(out, playerTile);
 	AppendGroundItems(out, playerTile);
 	AppendTownsfolk(out, playerTile);
+	AppendQuests(out);
 	AppendEquipment(out);
 	AppendMapGrid(out, playerTile);
 

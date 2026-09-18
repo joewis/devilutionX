@@ -45,6 +45,10 @@ POTION_HP_THRESHOLD = 0.55
 # spending a potion and giving up on the run.
 HEAL_SEEK_THRESHOLD = 0.75
 
+# Health below which the character will not start a fight, and will instead withdraw to
+# town and be healed. Chosen from observation: one level-1 engagement took 67 hp to 22.
+ENGAGE_HP_FLOOR = 0.6
+
 
 def log(message):
     print("[%6.1fs] %s" % (time.time() - START, message), flush=True)
@@ -167,6 +171,8 @@ def play(seconds, hp_floor=0.4, descend_hp_floor=0.6, engagement_seconds=25):
                 ac.wait_for_arrival(healer["tile"][0], healer["tile"][1], timeout=30, epsilon=1)
                 ac.send("talk", slot=healer["index"])
                 time.sleep(2.0)
+                ac.send("heal")  # selects "Talk to Pepin" on the screen that just opened
+                time.sleep(2.0)
                 log("healer result: hp %d -> %d" % (before_hp, ac.read_snapshot()["player"]["hp"]))
                 continue
 
@@ -217,7 +223,7 @@ def play(seconds, hp_floor=0.4, descend_hp_floor=0.6, engagement_seconds=25):
         ignore = set(unreachable_until)
         engageable = [m for m in snapshot["visible_monsters"] if m["slot"] not in ignore]
 
-        if engageable:
+        if engageable and hp_ratio >= ENGAGE_HP_FLOOR:
             before = (player["experience"], player["hp"])
             result, stuck = combat.fight(
                 seconds=engagement_seconds, hp_floor=hp_floor, ignore_slots=ignore)
@@ -232,6 +238,14 @@ def play(seconds, hp_floor=0.4, descend_hp_floor=0.6, engagement_seconds=25):
             taken = loot.clear_floor(result)
             if taken:
                 log("looted: %s" % ", ".join(taken))
+            continue
+
+        if engageable and hp_ratio < ENGAGE_HP_FLOOR:
+            log("hp %d%% - too hurt to start a fight; backing off to town to heal" % (hp_ratio * 100))
+            stairs = landmark(snapshot, "ascend")
+            if stairs is not None:
+                ac.walk_to(*stairs["tile"])
+                wait_for_level_change(("town", 0), timeout=90)
             continue
 
         # Everything in sight is unreachable right now. The usual cause is a shut door

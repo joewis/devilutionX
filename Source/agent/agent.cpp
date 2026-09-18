@@ -20,6 +20,7 @@
 #include "monster.h"
 #include "objects.h"
 #include "player.h"
+#include "stores.h"
 #include "towners.h"
 #include "utils/paths.h"
 
@@ -613,6 +614,19 @@ void ExecuteCommand(const std::string &command, int x, int y, int slot)
 		// Belt and worn items are addressed the same way the inventory UI addresses them.
 		if (slot < INVITEM_BELT_FIRST) return;
 		UseInvItem(slot);
+		return;
+	}
+	if (command == "heal") {
+		// The last step of talking to Pepin: the healer's home screen opens with "Talk to
+		// Pepin" highlighted, and choosing it runs TalkID::Healer -> StartHealer -> HealPlayer.
+		// StartStore is the engine's own entry for that, and calling it keeps the heal an
+		// interaction: the character must be standing at the healer to use it.
+		for (const Towner &towner : Towners) {
+			if (towner._ttype != TOWN_HEALER) continue;
+			if (player.position.tile.WalkingDistance(towner.position) > 1) continue;
+			StartStore(TalkID::Healer);
+			return;
+		}
 		return;
 	}
 	if (command == "talk") {
